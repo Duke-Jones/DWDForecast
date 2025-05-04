@@ -130,7 +130,7 @@ import threading
 import logging
 import pprint
 import configparser
-
+import os
 
 import numpy as np
 import pandas as pd
@@ -261,7 +261,7 @@ class dwdforecast(threading.Thread):
                 words =elements.split()
                 mytime = words[0] +"-" + words[1]
                 logging.debug("%s %s" ,",GetURLForLatest :DWD Filetimestamp found :", mytime)
-                mynewtime =time.mktime(datetime.datetime.strptime(mytime, "%d-%b-%Y-%H:%M").timetuple())
+                mynewtime =time.mktime(datetime.datetime.strptime(mytime, "%d-%b-%Y-%H:%M:%S").timetuple())
                 logging.debug("%s %s" ,",GetURLForLatest :DWD Filetimestamp found :", mynewtime)
                 #print ("From function GetURLForLatest -mynewtime", 2*mynewtime)
             
@@ -426,7 +426,7 @@ class dwdforecast(threading.Thread):
                     # Parsing DWD File content
                     # =============================================================================   
                     logging.debug("%s %s" ,",dwdforecast : -Starting to parse the kml Data from ", Myzipfilename)
-                    self.tree = ET.parse(Myzipfilename) 
+                    self.tree = ET.parse(os.path.join(self.targetdir,Myzipfilename))
                     self.root = self.tree.getroot()
                     self.root.tag     
                     """      

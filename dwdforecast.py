@@ -162,7 +162,7 @@ def loggerdate():
 
 # Main class that holds the required information 
 class dwdforecast(threading.Thread):
-    def __init__ (self, myqueue):
+    def __init__ (self, myqueue, queueStop):
         try:
             print ("Starting dwdforecast init ...")   
             self.config = configparser.ConfigParser()
@@ -185,7 +185,8 @@ class dwdforecast(threading.Thread):
             self.TemperatureOffset = (self.config.getfloat('SolarSystem', 'TemperatureOffset', raw=True))
             self.mytimezone = (self.config.get('SolarSystem', 'MyTimezone', raw=True))
             self.sleeptime = (self.config.getint('Processing', 'Sleeptime', raw=True))
-            
+            self.interaction = (config.get('Processing', 'ProcessingConfiguration', raw=True))
+
             self.PrintOutput = (self.config.getint('Output', 'PrintOutput', raw=True))
             self.CSVOutput = (self.config.getint('Output', 'CSVOutput', raw=True))
             self.DBOutput = (self.config.getint('Output', 'DBOutput', raw=True))
@@ -196,23 +197,24 @@ class dwdforecast(threading.Thread):
             self.DBName = (self.config.get('Output', 'DBName', raw=True))
             self.DBPort = (self.config.getint('Output', 'DBPort', raw=True))
             self.DBTable = (self.config.get('Output', 'DBTable', raw=True))
-            
-            
+
             self.mytemperature_model_parameters = TEMPERATURE_MODEL_PARAMETERS['sapm'][self.mytemperature_model]
             self.sandia_modules = pvlib.pvsystem.retrieve_sam('cecmod')
             self.sandia_module = self.sandia_modules[self.mymodule] # is "LG Electronics Inc. LG335E1C-A5" in sam-library-cec-modules-2019-03-05.csv
             self.cec_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
             self.cec_inverter = self.cec_inverters[self.myinverter]
-            #self.cec_inverter = self.cec_inverters['SMA_America__SB10000TL_US__240V_']  # is "SMA America: SB10000TL-US [240V]" in sam-library-cec-inverters-2019-03-05.csv         
- 
+            #self.cec_inverter = self.cec_inverters['SMA_America__SB10000TL_US__240V_']  # is "SMA America: SB10000TL-US [240V]" in sam-library-cec-inverters-2019-03-05.csv
+
             if (self.DBOutput ==1):
                 try:
-                    self.db = mysql.connector.connect(user=self.DBUser ,passwd=self.DBPassword, host=self.DBHost, port = self.DBPort, database=self.DBName,autocommit=True)           #Connect string to the database - we are setting
+                    #self.db = mysql.connector.connect(user=self.DBUser ,passwd=self.DBPassword, host=self.DBHost, port = self.DBPort, database=self.DBName,autocommit=True)           #Connect string to the database - we are setting
+                    self.db = mysql.connector.connect(user=self.DBUser ,passwd=self.DBPassword, host=self.DBHost, port=self.DBPort, database=self.DBName,autocommit=True, time_zone=self.mytimezone)
                     self.cur = self.db.cursor() 
                     print ("I have set my DB connection")
                 except Exception as ErrorDBConnect:
                     logging.error("%s %s",",Trying to connect to mariaDB failed:", ErrorDBConnect)
                     print ("Unable to connect to database", ErrorDBConnect)
+
         except Exception as ErrorConfigParse:
             logging.error("%s %s",",GetURLForLatest Error getting data from the internet:", ErrorConfigParse)
             print ("Hit error during configparse ", ErrorConfigParse)
@@ -222,6 +224,7 @@ class dwdforecast(threading.Thread):
                             altitude = self.myaltitude)
         self.lasttimecheck = 1534800680.0                   # Dec 14th 2018 (pure initialization)
         self.myqueue = myqueue
+        self.myqueue_st =  queueStop
         self.event = threading.Event()
         self.ext = 'kmz' 
         self.myinit = 0                                                                                     #So we can populate the queue initially / subsequently
@@ -373,6 +376,7 @@ class dwdforecast(threading.Thread):
             
     try:
         def run(self):
+            self.myqueue_st.put(0)
             while not self.event.is_set():            #In case the main process wants to shut us down...
                 if (self.myinit== 0):                 #We populate the first timestamp to signal to main that we are up & running
                     temptimestamp = time.time()
@@ -398,6 +402,7 @@ class dwdforecast(threading.Thread):
 
                 logging.debug("%s %s %s",",dwdforecast : -BEFORE  if- time comparison :", self.mynewtime, self.lasttimecheck)                
                 if (self.mynewtime > self.lasttimecheck):
+
                     logging.debug("%s %s %s" ,",dwdforecast : -in if- time comparison :", self.mynewtime, self.lasttimecheck)
                     #print ("DWD Weather - we have found a new kml file that we will download - timestamp was :", self.mynewtime)
                     #print ("DWD Weather -  self.lasttimecheck was ", self.lasttimecheck)
@@ -454,12 +459,12 @@ class dwdforecast(threading.Thread):
                         i = i+1
                     """
                     logging.debug("%s %s", ",subroutine dwdforecast Number of Timestamps in kml file is : ", len(self.timevalue))
-                        
+
                     for self.elem in self.tree.findall('./kml:Document/kml:Placemark',self.ns):                    #Position us at the Placemark
                         #print ("SUCERJH ", sucher)
                         #print ("Elemente ", elem.tag, elem.attrib, elem.text)
                         self.mylocation = self.elem.find('kml:name',self.ns).text                                  #Look for the station Number
-                        
+
                         # Here we pull the required data out of the xml file
                         if (self.mylocation == self.mystation):   
                             #print ("meine location", self.mylocation)
@@ -496,10 +501,9 @@ class dwdforecast(threading.Thread):
                                 if ('PPPP' == self.mosmix_element):
                                     self.PPPP_temp = self.elem[0].text
                                     self.PPPP = list (self.PPPP_temp.split())
-                    
-                    
+
                     #------------------------------------
-                    # Define empty array                
+                    # Define empty array
                     self.mosmixdata =[]
                     for self.j in range(6):                                      #Right now we have timevalue, myTZtimestamp, self.FF Rad1h TTT PPPP
                         self.column = []
@@ -510,11 +514,11 @@ class dwdforecast(threading.Thread):
                     #------------------------------------
                     #Populate values
                     counter = 0
-                    
+
                     for self.i in self.timevalue:
                         #self.myTZtimestamp = self.connvertDWDtimestamptoINT(self.timevalue[counter])
                         self.myTZtimestamp = self.changeDWDTimestamp(self.timevalue[counter])
-                        
+
                         self.mosmixdata[0][counter]=self.timevalue[counter]
                         self.mosmixdata[1][counter]=self.myTZtimestamp
                         self.mosmixdata[2][counter]=self.Rad1h[counter]
@@ -728,12 +732,20 @@ class dwdforecast(threading.Thread):
                         logging.error ("%s %s", ",subroutine dwdforecast final exception : ", ErrorDWDArray)
                         print ("Error processing DWDArray", ErrorDWDArray)
                     logging.debug("%s %s", "From dwdforecast - we have found a true commit and have updated the database at the following dwd time :", self.mynewtime)
-                    time.sleep(self.sleeptime)          # We are putting in a sleep 
+
+                    if (self.interaction != 'Simple'):
+                        time.sleep(self.sleeptime)          # We are putting in a sleep
+
                     self.myqueue.put(self.mynewtime)
+                    self.myqueue_st.put(1)
+
                 else:
                     pass
-                    #print("No new data.....")
-                time.sleep(self.sleeptime)              # We are pausing to not constantly cause internet traffic
+                    print("No new data.....")
+
+                if (self.interaction != 'Simple'):
+                    time.sleep(self.sleeptime)              # We are pausing to not constantly cause internet traffic
+
             print ("Thread is going down ...")
     except Exception as ExceptionError:
             print ("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
@@ -741,7 +753,7 @@ class dwdforecast(threading.Thread):
             print ("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             logging.error("%s %s", ",subroutine dwdforecast final exception : ", ExceptionError)
 
-                    
+
 
 if __name__ == "__main__":
 
@@ -752,64 +764,79 @@ if __name__ == "__main__":
     Simple : Try to get weather data once only - then terminate
     Complex : Start a seperate queue that continuously polls the DWD server on the internet to get updated data 
     """
-    Interaction = 'Simple' #Interaction can be 'Simple' - or 'Complex'
+
+    config = configparser.ConfigParser()
+    config.read('configuration.ini')
+    sleeptime = (config.getint('Processing', 'Sleeptime', raw=True))
+    Interaction = (config.get('Processing', 'ProcessingConfiguration', raw=True))
+
+    print("Processing Type : <", Interaction, ">")
     #
 
-    
-    
+
     #-----------------------------------------------------------------
     # START Queue (To read dwd values and populate them to database):
     try:
-        myQueue1 = queue.Queue()                                               
-        myThread1= dwdforecast(myQueue1)                          
-        myThread1.start()                                                             
-        while myQueue1.empty():                                                  
+        queue_TS = queue.Queue()
+        queue_Stop  = queue.Queue()
+        myThread1= dwdforecast(queue_TS, queue_Stop)
+        myThread1.start()
+        while queue_TS.empty():
             print(" Waiting on DWD dwdforecastdata Queue results to tell it is started...")
             logging.info("%s " ",Main :Waiting on Queue results to be populated ...")
             time.sleep(1)
         # Queue End (To read values from DWD)
         #_________________________________________________________________
-        i = 0 
-            
+        i = 0
+
         try:
-            while i <1: 
-                if not myQueue1.empty():                                      # Do something if we have queue entries
-                    quelength = myQueue1.qsize()                               # In case multiple values are in queue, take last one
-                    #print ("Length of Queue : ", quelength) 
-                    logging.info("%s %s " ,",Main :Queue length is : ", quelength) 
-                    
+            while i <1:
+                if not queue_TS.empty():                                      # Do something if we have queue entries
+                    quelength = queue_TS.qsize()                               # In case multiple values are in queue, take last one
+                    #print ("Length of Queue : ", quelength)
+                    logging.info("%s %s " ,",Main :Queue length is : ", quelength)
+
                     for x in range (0,quelength):
-                        LastDWDtimestamp = myQueue1.get()                     # Get stuff from queue 
+                        LastDWDtimestamp = queue_TS.get_nowait()                     # Get stuff from queue
                         mylasttimestamp = connvertINTtimestamptoDWD(LastDWDtimestamp)
+
                     print ("From Main : DWD File access I checked /  got uploaded by DWD was at :", LastDWDtimestamp,mylasttimestamp )
-                if (Interaction == 'Simple'):   
-                    print ("Interaction is Simple - processing once only")
-                    i = i +1
+
+                if (Interaction == 'Simple'):
+                    # stop when finish-signal is received
+                    #print ("Stop-Queue-Size is ", queue_Stop.qsize())
+
+                    for x in range(0,queue_Stop.qsize()):
+                        if (queue_Stop.get_nowait() == 1):
+                            i = i +1
+                            print ("Interaction is Simple - processing once only - finished")
+
                 else:
                     pass
+
                 time.sleep(1)
-            time.sleep(60)
+
+            #print ("sending stop signal...")
             myThread1.event.set()
             print ("Closing thread & exiting")
         except KeyboardInterrupt:
-            #In case user hits CTRL-C 
-            print (" Sub - User is trying to kill me ...  \n") 
+            #In case user hits CTRL-C
+            print (" Sub - User is trying to kill me ...  \n")
             myThread1.event.set()
             print ("Thread from Sub ... stopped")
-        except Exception as OtherExceptionError:  
-            print ("hit some other error....    !", OtherExceptionError)
+        except Exception as ex:
+            if hasattr(e, 'message'):
+                print ("hit some other error....    !", ex.message)
+            else:
+                print ("hit some other error....    !", ex)
+
             myThread1.event.set()
-            
-                
+
     except KeyboardInterrupt:
-        #In case user hits Ctrl-C  
-        print ("User hit Ctrl-C - and tries to kill me ...- starting to signal thread termination \n") 
+        #In case user hits Ctrl-C
+        print ("User hit Ctrl-C - and tries to kill me ...- starting to signal thread termination \n")
         myThread1.event.set()
-    except Exception as FinalExceptionError:  
+    except Exception as FinalExceptionError:
         print ("I am clueless ... Hit some other error ....    !", FinalExceptionError)
         myThread1.event.set()
-        
- 
- 
-
 

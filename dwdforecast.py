@@ -197,6 +197,7 @@ class dwdforecast(threading.Thread):
             self.DBName = (self.config.get('Output', 'DBName', raw=True))
             self.DBPort = (self.config.getint('Output', 'DBPort', raw=True))
             self.DBTable = (self.config.get('Output', 'DBTable', raw=True))
+            self.DBTimeZone = (self.config.get('Output', 'ServerTimezone', raw=True))
 
             self.mytemperature_model_parameters = TEMPERATURE_MODEL_PARAMETERS['sapm'][self.mytemperature_model]
             self.sandia_modules = pvlib.pvsystem.retrieve_sam('cecmod')
@@ -208,7 +209,7 @@ class dwdforecast(threading.Thread):
             if (self.DBOutput ==1):
                 try:
                     #self.db = mysql.connector.connect(user=self.DBUser ,passwd=self.DBPassword, host=self.DBHost, port = self.DBPort, database=self.DBName,autocommit=True)           #Connect string to the database - we are setting
-                    self.db = mysql.connector.connect(user=self.DBUser ,passwd=self.DBPassword, host=self.DBHost, port=self.DBPort, database=self.DBName,autocommit=True, time_zone=self.mytimezone)
+                    self.db = mysql.connector.connect(user=self.DBUser ,passwd=self.DBPassword, host=self.DBHost, port=self.DBPort, database=self.DBName,autocommit=True, time_zone=self.DBTimeZone)
                     self.cur = self.db.cursor() 
                     print ("I have set my DB connection")
                 except Exception as ErrorDBConnect:
@@ -607,15 +608,16 @@ class dwdforecast(threading.Thread):
                         #Now creating list of unixtimestamps
                         self.local_unixtimestamp= []
                         logging.debug("%s", ",dwdforecast : -Starting PANDAS processing ... 15 ")
-                        self.i = 0 
+                        self.i = 0
                         for self.elems in (self.local_timestamp):
-                            self.local_unixtimestamp.append(time.mktime(self.local_timestamp[self.i].timetuple()))
-                            self.i = self.i+1 
+                            # self.local_unixtimestamp.append(time.mktime(self.local_timestamp[self.i].timetuple()))
+                            # print("self.local_timestamp[self.i].timestamp())=", self.local_timestamp[self.i].timestamp())
+                            self.local_unixtimestamp.append(self.local_timestamp[self.i].timestamp())
+                            self.i = self.i+1
                         logging.debug("%s", ",dwdforecast : -Starting PANDAS processing ... 16 ")
                         self.PandasDF['mytimestamp'] = np.array(self.local_unixtimestamp)
                         logging.debug("%s %s" ,",dwdforecast : -Starting PANDAS processing ... 17 Dataframe length :",len(self.PandasDF.index) )
-                        
-                        
+
                         logging.debug("%s" ,",dwdforecast : -Starting pvlib calculations ...1")
                         # =============================================================================
                         # STARTING  SOLAR POSITION AND ATMOSPHERIC MODELING
@@ -675,7 +677,7 @@ class dwdforecast(threading.Thread):
                         self.PandasDF['DCSim']= self.myModelChain.results.dc.p_mp
                         logging.debug("%s" ,",dwdforecast : -ENDING pvlib calculations ...18")
                         # =============================================================================
-                        # STARTING  Database Processing
+                        # STARTING  CSV Processing
                         # =============================================================================                        
                         if (self.CSVOutput ==1):
                             try:
@@ -700,13 +702,13 @@ class dwdforecast(threading.Thread):
                         # =============================================================================
                         logging.debug("%s" ,",dwdforecast : -Starting pvlib calculations ...19")
                         if (self.DBOutput == 1):
-                            logging.debug("%s" ,",dwdforecast : -Starting database output from pvlib results ...")
-                            self.Databaselasttimestamp= self.findlastDBtimestamp(self.cur, self.DBTable)
-                            
-                            self.PandasDFFirstTimestamp = self.PandasDF['mytimestamp'].iloc[0]
-                            self.Database_found_filetimestamp = self.checkTimestampExistence(self.cur, self.DBTable, int(self.PandasDFFirstTimestamp))
-                            logging.debug("%s %s" ,",dwdforecast : -Starting database output - Database_found_filetimestamp is : ",self.Database_found_filetimestamp  )
-                            
+                            #logging.debug("%s" ,",dwdforecast : -Starting database output from pvlib results ...")
+                            #self.Databaselasttimestamp= self.findlastDBtimestamp(self.cur, self.DBTable)
+
+                            #self.PandasDFFirstTimestamp = self.PandasDF['mytimestamp'].iloc[0]
+                            #self.Database_found_filetimestamp = self.checkTimestampExistence(self.cur, self.DBTable, int(self.PandasDFFirstTimestamp))
+                            #logging.debug("%s %s" ,",dwdforecast : -Starting database output - Database_found_filetimestamp is : ",self.Database_found_filetimestamp  )
+
                             self.indexcounter_addrows=0     #pure initialization
                             self.MyWeathervalues ={}
                             try:
@@ -725,7 +727,7 @@ class dwdforecast(threading.Thread):
                                         self.updatesingleRowinDB(self.cur, self.DBTable, row['TTT'], row['Rad1h'], row['FF'], row['PPPP'], row['mytimestamp'], row['Rad1Energy'], row['ACSim'], row['DCSim'], row['CellTempSim'], row['Rad1wh'])
                             except Exception as ErrorDBCommit:
                                 print ("Error during database commit from dwdforecast :", ErrorDBCommit)
-                        # =============================================================================                            
+                        # =============================================================================
                         self.myTZtimestamp = connvertINTtimestamptoDWD(self.mynewtime)
                         logging.debug ("%s %s %s %s", ",Subroutine dwdforecast -we have used DWD file from time : ", self.mynewtime, " ", self.myTZtimestamp)
                     except Exception as ErrorDWDArray:
